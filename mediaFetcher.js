@@ -91,10 +91,10 @@ function validateMediaUrl(text) {
   try {
     url = new URL(String(text).trim());
   } catch {
-    throw new BlockedUrlError('That is not a valid web link. It should start with http:// or https://.');
+    throw new BlockedUrlError('That is not a valid web link. Paste the full link to the file, starting with http:// or https://, for example https://example.com/photo.jpg.');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new BlockedUrlError('That is not a valid web link. It should start with http:// or https://.');
+    throw new BlockedUrlError('That is not a valid web link. Paste the full link to the file, starting with http:// or https://, for example https://example.com/photo.jpg.');
   }
   if (url.username || url.password) {
     throw new BlockedUrlError('Links containing a username or password are not allowed. Remove the "name:password@" part and use a public link that needs no login.');
