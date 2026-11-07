@@ -99,10 +99,23 @@ app.post('/api/preflight', async (req, res, next) => {
 
 // Sends the post. Each platform gets its own result, because one can fail while another works.
 app.post('/api/send', async (req, res) => {
-  const { caption, mediaUrl, platforms, mockScenario, preflightToken, confirmPublish, accountIds } = req.body || {};
+  const { caption, mediaUrl, platforms, mockScenario, preflightToken, confirmPublish, accountIds, scheduledTime } = req.body || {};
   const chosen = (Array.isArray(platforms) ? platforms : []).filter((platform) => Object.hasOwn(PLATFORM_RULES, platform));
   if (chosen.length === 0 || typeof mediaUrl !== 'string' || !mediaUrl.trim()) {
     return res.status(400).json({ message: 'A media link and at least one platform are needed.' });
+  }
+
+  // Optional schedule. Checked before the preflight pass is used, so a mistake here doesn't waste it.
+  let scheduledUtc;
+  if (scheduledTime !== undefined && scheduledTime !== null && scheduledTime !== '') {
+    const when = typeof scheduledTime === 'string' ? new Date(scheduledTime) : new Date(NaN);
+    if (Number.isNaN(when.getTime())) {
+      return res.status(400).json({ message: 'The scheduled time is not a valid date and time. Pick it again.' });
+    }
+    if (when.getTime() <= Date.now()) {
+      return res.status(400).json({ message: 'The scheduled time is in the past. Pick a time in the future.' });
+    }
+    scheduledUtc = when.toISOString().replace(/\.\d{3}Z$/, 'Z'); // UTC ISO 8601, e.g. 2026-11-10T15:30:00Z
   }
 
   // Real posts need a clear "yes" from the person using the page.
@@ -150,6 +163,7 @@ app.post('/api/send', async (req, res) => {
         text: String(caption || ''),
         mediaUrls: [blotatoMediaUrl],
         platform,
+        scheduledTime: scheduledUtc,
       });
       results.push({ platform, state: 'in-progress', postSubmissionId, account: account.username });
     } catch (error) {

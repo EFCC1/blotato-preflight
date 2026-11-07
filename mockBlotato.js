@@ -94,13 +94,20 @@ function createMockRouter() {
     const problem = findProblemInPost(req.body);
     if (problem) return sendError(res, 422, problem);
 
+    // Optional top-level scheduledTime, as in the OpenAPI file: an ISO 8601 time in the future.
+    const { scheduledTime } = req.body;
+    if (scheduledTime !== undefined && (typeof scheduledTime !== 'string' || !(Date.parse(scheduledTime) > Date.now()))) {
+      return sendError(res, 422, '"scheduledTime" must be an ISO 8601 time in the future.');
+    }
+
     const postSubmissionId = crypto.randomUUID();
     fakePosts.set(postSubmissionId, {
       scenario: currentScenario,
       platform: req.body.post.content.platform,
+      scheduledTime,
       checks: 0,
     });
-    res.status(201).json({ postSubmissionId });
+    res.status(201).json(scheduledTime ? { postSubmissionId, scheduledTime } : { postSubmissionId });
   });
 
   router.get('/posts/:postSubmissionId', (req, res) => {
@@ -116,6 +123,10 @@ function createMockRouter() {
     }
     if (LATE_FAILURES[post.scenario]) {
       return res.json({ postSubmissionId, status: 'failed', errorMessage: LATE_FAILURES[post.scenario] });
+    }
+    // A post with a scheduled time is accepted and waits, so it reports "scheduled" instead of "published".
+    if (post.scheduledTime) {
+      return res.json({ postSubmissionId, status: 'scheduled', scheduledTime: post.scheduledTime });
     }
     res.json({
       postSubmissionId,

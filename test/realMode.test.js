@@ -35,6 +35,11 @@ function checkAgainstSpec(call) {
 
   const schema = resolve(operation.requestBody.content['application/json'].schema);
   (schema.required || []).forEach((field) => assert.ok(field in call.body, `missing required "${field}"`));
+  Object.keys(call.body).forEach((field) => assert.ok(schema.properties[field], `top-level "${field}" is not in the OpenAPI file`));
+  if (call.body.scheduledTime !== undefined) {
+    assert.strictEqual(resolve(schema.properties.scheduledTime).type, 'string');
+    assert.match(call.body.scheduledTime, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, 'scheduledTime is UTC ISO 8601');
+  }
   if (call.pathname !== '/v2/posts') return;
 
   const postSchema = resolve(schema.properties.post);
@@ -155,6 +160,20 @@ test('full real-mode flow: preflight, confirmation, upload, publish, status', as
     assert.strictEqual(result.data.results[0].state, 'failed');
     assert.match(result.data.results[0].explanation.rawMessage, /Account not found/);
   });
+});
+
+test('a scheduled post sends scheduledTime at the top level, next to "post", as the OpenAPI file shows', async () => {
+  const one = { ...post, platforms: ['linkedin'] };
+  const preflight = await api(base, '/api/preflight', one);
+  const before = stub.calls.length;
+  const when = '2099-01-02T03:04:00Z';
+  const sent = await api(base, '/api/send', { ...one, confirmPublish: true, preflightToken: preflight.data.preflightToken, accountIds, scheduledTime: when });
+  assert.strictEqual(sent.status, 200, JSON.stringify(sent.data));
+  const publish = stub.calls.slice(before).find((call) => call.pathname === '/v2/posts');
+  assert.deepStrictEqual(Object.keys(publish.body).sort(), ['post', 'scheduledTime']);
+  assert.strictEqual(publish.body.scheduledTime, when);
+  assert.ok(!('scheduledTime' in publish.body.post), 'scheduledTime must not be nested inside "post"');
+  checkAgainstSpec(publish);
 });
 
 test('the key never appears in the logs, and the logs show it hidden', () => {

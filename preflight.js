@@ -30,23 +30,38 @@ const toMb = (bytes) => `${(bytes / (1024 * 1024)).toFixed(bytes < 1024 * 1024 ?
 const formatName = (format) => format.toUpperCase();
 const formatList = (formats) => formats.map(formatName).join(', ');
 
+// "JPG or PNG", "16:9, 9:16 or 1:1".
+function listWithOr(items) {
+  return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+}
+
+// "3:4" for 1200x1600: the simplest whole-number ratio within 1%, or "about 0.71:1" if there isn't a short one.
+function describeRatio(width, height) {
+  const actual = width / height;
+  for (let bottom = 1; bottom <= 20; bottom += 1) {
+    const top = Math.round(actual * bottom);
+    if (top > 0 && Math.abs(top / bottom - actual) / actual <= 0.01) return `${top}:${bottom}`;
+  }
+  return `about ${actual.toFixed(2)}:1`;
+}
+
 function describeFetchError(error) {
   if (error instanceof BlockedUrlError) return error.message;
   if (error.name === 'TimeoutError' || error.name === 'AbortError') {
     return `The link did not answer within ${CONNECT_TIMEOUT_MS / 1000} seconds (a timeout). Blotato would probably give up too. Try a faster or more reliable host.`;
   }
   if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') return 'That website address could not be found. Check the link for typos.';
-  if (error.code === 'ECONNREFUSED') return 'The website refused the connection. It may be down.';
+  if (error.code === 'ECONNREFUSED') return 'The website refused the connection, so it may be down. Check the link opens in your browser, or host the file somewhere else.';
   if (String(error.code || '').includes('CERT') || error.code === 'ERR_TLS_CERT_ALTNAME_INVALID') {
-    return 'The website has a broken security certificate, so the link could not be opened safely.';
+    return 'The website has a broken security certificate, so the link could not be opened safely. Host the file on a site with a working https:// address.';
   }
-  return `Could not open the link (${error.code || 'connection problem'}).`;
+  return `Could not open the link (${error.code || 'connection problem'}). Check it opens in a private browser window without logging in, then run Preflight again.`;
 }
 
 function describeBadStatus(status) {
   if (status === 403) return 'The link answered 403 Forbidden, which means the file is private or blocks outside access. Blotato would be refused too. Use a public link.';
-  if (status === 404) return 'The link answered 404 Not Found, which means no file exists there. It may be deleted, expired, or mistyped.';
-  return `The link answered with status ${status}, but it needs to answer 200 (OK) for Blotato to download the file.`;
+  if (status === 404) return 'The link answered 404 Not Found, which means no file exists there. It may be deleted, expired, or mistyped. Check the link, or upload the file again and use the new link.';
+  return `The link answered with status ${status}, but it needs to answer 200 (OK) for Blotato to download the file. Check it opens in a private browser window without logging in.`;
 }
 
 // Downloads the file within the size and time limits, without ever keeping more than needed.
@@ -147,7 +162,7 @@ function checkFormat(platform, kind, format, source) {
   if (maybeConverted.includes(format)) {
     return skipped(name, `${shown} is not a standard ${rules.label} ${kind} format. Blotato may convert it, but that is not guaranteed. To be safe, use ${formatList(formats)}.`);
   }
-  return fail(name, `${shown} (${source}) is not accepted by ${rules.label} for ${kind}s. Convert it to ${formatList(formats)}.`);
+  return fail(name, `Your ${kind} is ${shown} (${source}), which ${rules.label} does not accept for ${kind}s. ${rules.label} accepts ${listWithOr(formats.map(formatName))}. Convert it to ${formatName(formats[0])}.`);
 }
 
 function checkFileSize(platform, kind, bytes, isExact) {
@@ -155,9 +170,13 @@ function checkFileSize(platform, kind, bytes, isExact) {
   const name = `File size: ${rules.label}`;
   const { maxBytes, minBytes } = rules[kind];
 
-  if (bytes > maxBytes) return fail(name, `The file is ${toMb(bytes)}, but ${rules.label} allows ${toMb(maxBytes)} for ${kind}s. Make it smaller.`);
+  if (bytes > maxBytes) {
+    return fail(name, `Your ${kind} is ${toMb(bytes)}. ${rules.label} allows up to ${toMb(maxBytes)} for ${kind}s. Compress it or lower its resolution so it is at least ${toMb(bytes - maxBytes)} smaller.`);
+  }
   if (!isExact) return skipped(name, `The full download did not finish, so the final size is unknown. The ${rules.label} limit is ${toMb(maxBytes)}.`);
-  if (minBytes && bytes < minBytes) return fail(name, `The file is ${toMb(bytes)}, but ${rules.label} needs at least ${toMb(minBytes)} for ${kind}s.`);
+  if (minBytes && bytes < minBytes) {
+    return fail(name, `Your ${kind} is ${toMb(bytes)}. ${rules.label} needs at least ${toMb(minBytes)} for ${kind}s. Export it again at a higher quality so it is at least ${toMb(minBytes)}.`);
+  }
   return pass(name, `${toMb(bytes)} is within the ${rules.label} limit of ${toMb(maxBytes)}.`);
 }
 
@@ -172,11 +191,25 @@ function checkAspectRatio(platform, kind, { width, height }) {
   const near = (value) => Math.abs(actual - value) / value <= ASPECT_RATIO_TOLERANCE;
   const exact = aspect.exact.find((ratio) => near(ratio.value));
   const range = aspect.ranges.find((item) => (actual >= item.min || near(item.min)) && (actual <= item.max || near(item.max)));
-  const allowed = [...aspect.ranges, ...aspect.exact].map((item) => item.label).join(', ');
+  const allowed = [...aspect.ranges, ...aspect.exact].map((item) => item.label);
 
   if (exact) return pass(name, `${width}x${height} is ${exact.label}, which ${rules.label} supports.`);
   if (range) return pass(name, `${width}x${height} is about ${actual.toFixed(2)}:1, inside the ${range.label} range ${rules.label} supports.`);
-  return fail(name, `${width}x${height} is about ${actual.toFixed(2)}:1, which ${rules.label} does not support. Resize it to: ${allowed}.`);
+
+  // Suggest the nearest allowed ratio, and the crop that keeps as much of the picture as possible.
+  const targets = [
+    ...aspect.ranges.flatMap((item) => {
+      const [minLabel, maxLabel] = item.label.split(' to ');
+      return [{ label: minLabel, value: item.min }, { label: maxLabel, value: item.max }];
+    }),
+    ...aspect.exact,
+  ];
+  const distance = (item) => Math.abs(Math.log(actual / item.value));
+  const target = targets.reduce((best, item) => (distance(item) < distance(best) ? item : best));
+  const crop = actual > target.value
+    ? { width: Math.round(height * target.value), height }
+    : { width, height: Math.round(width / target.value) };
+  return fail(name, `Your ${kind} is ${describeRatio(width, height)} (${width}x${height}). ${rules.label} accepts ${listWithOr(allowed)}. Crop it to ${target.label} (${crop.width}x${crop.height}).`);
 }
 
 function checkCaption(platform, caption) {
@@ -185,12 +218,13 @@ function checkCaption(platform, caption) {
   const length = [...caption].length; // Counts an emoji as one character.
 
   if (length > rules.captionMaxLength) {
-    return fail(name, `${length} characters is ${length - rules.captionMaxLength} over the ${rules.label} limit of ${rules.captionMaxLength}. Shorten the caption.`);
+    const extra = length - rules.captionMaxLength;
+    return fail(name, `Your caption has ${length} characters. ${rules.label} allows ${rules.captionMaxLength}. Remove ${extra} ${extra === 1 ? 'character' : 'characters'}.`);
   }
   if (rules.maxHashtags) {
     const hashtags = (caption.match(/(^|\s)#[^\s#]+/g) || []).length;
     if (hashtags > rules.maxHashtags) {
-      return fail(name, `The caption has ${hashtags} hashtags, but Blotato allows ${rules.maxHashtags} on ${rules.label}. Remove ${hashtags - rules.maxHashtags}.`);
+      return fail(name, `Your caption has ${hashtags} hashtags. ${rules.label} allows ${rules.maxHashtags}. Remove ${hashtags - rules.maxHashtags}.`);
     }
   }
   if (length === 0) return pass(name, `The caption is empty, which the Blotato API allows. The post will have no caption.`);
@@ -224,7 +258,7 @@ async function checkMedia(link, platforms) {
 
   // Google Drive check. It always runs, because it only needs the text of the link.
   const driveCheck = link.toLowerCase().includes('drive.google.com')
-    ? fail('Not a Google Drive link', 'Google Drive share links often return a web page instead of the file. Use a direct file link instead.')
+    ? fail('Not a Google Drive link', 'This is a Google Drive share link, which returns a web page instead of the file. Use a direct public file link.')
     : pass('Not a Google Drive link', 'This is not a Google Drive link.');
 
   if (!link) {
@@ -267,7 +301,7 @@ async function checkMedia(link, platforms) {
       response.destroy();
       checks.push(fail('Media type', contentType === 'text/html'
         ? 'The link returns a web page (text/html), not the file itself. Use the direct link to the image or video.'
-        : `The link returns "${contentType || 'an unknown type'}", but it must be an image or a video.`));
+        : `The link returns "${contentType || 'an unknown type'}", which is not an image or a video. Use a direct link that opens only the image or video file itself.`));
       const reason = 'Could not check this until the link returns an image or video.';
       checks.push(skipped('File can be downloaded', reason), skipped('File format and size', reason), skipped('Aspect ratio', reason));
       return checks;
@@ -279,7 +313,7 @@ async function checkMedia(link, platforms) {
     if (declaredBytes > MAX_DOWNLOAD_BYTES) {
       response.destroy();
       checks.push(pass('Media type', `The link says it is a ${kind} (${contentType}). The file was not opened because it is too large.`));
-      checks.push(fail('File can be downloaded', `The file is ${toMb(declaredBytes)}, but Blotato's limit is ${toMb(MAX_DOWNLOAD_BYTES)}. Make it smaller.`));
+      checks.push(fail('File can be downloaded', `The file is ${toMb(declaredBytes)}. Blotato's limit is ${toMb(MAX_DOWNLOAD_BYTES)}. Compress it so it is at least ${toMb(declaredBytes - MAX_DOWNLOAD_BYTES)} smaller.`));
       checks.push(skipped('File format and size', 'Not checked because the file is too large.'), skipped('Aspect ratio', 'Not checked because the file is too large.'));
       return checks;
     }
@@ -290,7 +324,7 @@ async function checkMedia(link, platforms) {
 
     if (download.tooLarge) {
       checks.push(pass('Media type', `The link says it is a ${kind} (${contentType}). The file was not fully read because it is too large.`));
-      checks.push(fail('File can be downloaded', `The file is over Blotato's limit of ${toMb(MAX_DOWNLOAD_BYTES)}. Make it smaller.`));
+      checks.push(fail('File can be downloaded', `The file is bigger than Blotato's limit of ${toMb(MAX_DOWNLOAD_BYTES)}. Compress it or shorten it to under ${toMb(MAX_DOWNLOAD_BYTES)}.`));
       checks.push(skipped('File format and size', 'Not checked because the file is too large.'), skipped('Aspect ratio', 'Not checked because the file is too large.'));
       return checks;
     }
@@ -316,10 +350,10 @@ async function checkMedia(link, platforms) {
     const stillDownloading = !sizeIsExact && (download.timedOut || download.error);
 
     if (unreadable && !stillDownloading) {
-      checks.push(fail('Media type', `The link says it is a ${kind} (${contentType}), but the file could not be read as one. It may be damaged, or not really a ${kind}.`));
+      checks.push(fail('Media type', `The link says it is a ${kind} (${contentType}), but the file could not be read as one. It may be damaged, or not really a ${kind}. Export it again as a standard ${isImage ? 'JPG or PNG' : 'MP4'} file and use the new link.`));
       checks.push(sizeIsExact
         ? pass('File can be downloaded', `Downloaded the whole file (${toMb(download.bytes)}).`)
-        : fail('File can be downloaded', 'The download stopped partway through.'));
+        : fail('File can be downloaded', 'The download stopped partway through. Upload the file again, or host it somewhere more reliable, then run Preflight again.'));
       checks.push(skipped('File format and size', 'Not checked because the file is not readable.'), skipped('Aspect ratio', 'Not checked because the file is not readable.'));
       return checks;
     }
@@ -337,7 +371,7 @@ async function checkMedia(link, platforms) {
     } else if (download.timedOut) {
       checks.push(skipped('File can be downloaded', `Only ${toMb(download.bytes)} arrived in ${DOWNLOAD_TIMEOUT_MS / 1000} seconds, so the full download was not proven. A slow link can also make Blotato fail.`));
     } else {
-      checks.push(fail('File can be downloaded', 'The download stopped partway through. The link may be unreliable. Try another host.'));
+      checks.push(fail('File can be downloaded', 'The download stopped partway through, so the link is unreliable. Upload the file again, or host it somewhere more reliable, then run Preflight again.'));
     }
 
     const format = info ? info.format : VIDEO_FORMATS_BY_TYPE[contentType];
@@ -375,7 +409,7 @@ async function runPreflight({ caption, mediaUrl, platforms }) {
     checks.push(fail('Platform supported', `This app has no rules for: ${unsupported.join(', ')}. Use Instagram, TikTok or LinkedIn.`));
   }
   const captionIsText = caption === undefined || typeof caption === 'string';
-  if (!captionIsText) checks.push(fail('Caption is text', 'The caption must be plain text.'));
+  if (!captionIsText) checks.push(fail('Caption is text', 'The caption must be plain text. Type it into the Caption box.'));
 
   checks.push(...(await checkMedia(link, chosen)));
 

@@ -113,14 +113,17 @@ function buildTarget(platform) {
 }
 
 // Starts publishing and returns the postSubmissionId used to track it.
-async function publishPost({ accountId, text, mediaUrls, platform }) {
-  const data = await callBlotato('POST', '/posts', {
+// scheduledTime (optional) is a UTC ISO 8601 time. The OpenAPI file puts it at the top level, next to "post".
+async function publishPost({ accountId, text, mediaUrls, platform, scheduledTime }) {
+  const body = {
     post: {
       accountId,
       content: { text, mediaUrls, platform },
       target: buildTarget(platform),
     },
-  });
+  };
+  if (scheduledTime) body.scheduledTime = scheduledTime;
+  const data = await callBlotato('POST', '/posts', body);
   return data.postSubmissionId;
 }
 

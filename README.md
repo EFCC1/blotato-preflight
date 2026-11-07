@@ -20,8 +20,14 @@ This app catches those problems first.
    - the whole file downloads
    - the format, file size, aspect ratio and caption length suit each platform
    - you have a connected account for each platform
-3. **Send to Blotato** turns on only when no check has failed. The server enforces this too, not just the button.
-4. **Live status** shows Sending, then In progress, then **Published** (with the post link), **Failed** (with what it means and how to fix it) or **Timed out** (after 2 minutes).
+   Every failed check says exactly what is wrong and what to do, with real numbers. For example: "Your image is 3:4 (1200x1600). Instagram accepts 4:5 to 1.91:1 or 9:16. Crop it to 4:5 (1200x1500)."
+3. **Post now or schedule.** After preflight passes, choose **Post now** (the default) or **Schedule** (see below).
+4. **Send to Blotato** (or **Schedule post**) turns on only when no check has failed. The server enforces this too, not just the button.
+5. **Live status** shows Sending, then In progress, then one of these:
+   - **Published**, with the post link
+   - **Scheduled**, with the date and time in your local time
+   - **Failed**, with what it means and how to fix it
+   - **Timed out**, after 2 minutes
 
 Platform rules (formats, sizes, ratios, caption limits) live in `platformRules.js`, with the source of each value. Your API key stays on the server: the page never sees it, and the logs show it as `[HIDDEN]`.
 
@@ -76,6 +82,23 @@ Mock mode uses a fake Blotato built into the app, which answers exactly like the
 
 To see preflight block a post, try `https://picsum.photos/1000/1400`, which has the wrong ratio for Instagram.
 
+## Schedule a post
+
+After preflight passes, a **When to post** choice appears above the Send button.
+
+1. Choose **Schedule**. A date and time picker appears, with your time zone name next to it (for example `Africa/Lagos`).
+2. Pick a date and time in **your local time**. The app converts it to UTC (world standard time) in ISO 8601 format, for example `2026-11-10T15:30:00Z`, before sending.
+3. The button changes to **Schedule post**. It stays locked until the time is in the future. A time in the past shows a clear message instead.
+4. Press **Schedule post**. Live status shows a blue **Scheduled** badge with the date and time in your local time.
+
+How it works:
+
+- Blotato gets the time as the top-level `scheduledTime` field next to `post` in `POST /v2/posts`, as Blotato's OpenAPI file and docs show.
+- The server checks the time again, and refuses one that is in the past or invalid.
+- The preflight pass and, in real mode, the confirmation tick box are still required.
+
+**To try it in mock mode:** pick scenario **1. Success**, choose **Schedule**, pick a time later today, and press **Schedule post**. The fake Blotato answers "scheduled" instead of "published".
+
 ## Switch to the real Blotato API
 
 1. Open `.env` in a text editor.
@@ -94,7 +117,7 @@ The app only uses real mode when `BLOTATO_MOCK` says `false`. Anything else, inc
 | `GET /api/health` | Says the app is running and which mode it is in, and lists the platforms and mock scenarios. |
 | `GET /api/accounts` | Lists your connected social accounts (id, platform, username and name only). |
 | `POST /api/preflight` | Runs every check on `{ caption, mediaUrl, platforms }`. Returns the results and, if nothing failed, a one-time pass. |
-| `POST /api/send` | Uploads the media to Blotato and publishes to each platform. Needs the one-time pass, and in real mode `confirmPublish: true`. |
+| `POST /api/send` | Uploads the media to Blotato and publishes to each platform. Needs the one-time pass, and in real mode `confirmPublish: true`. Optional `scheduledTime` (ISO 8601, in the future): the post is scheduled instead of published now, and the time is sent to Blotato in UTC. |
 | `GET /api/status/:postSubmissionId` | Asks Blotato for a post's status: in-progress, published, scheduled or failed. |
 
 The page only calls these. In mock mode, the fake Blotato also answers at `/mock-blotato/v2/...`, but only the server uses it.

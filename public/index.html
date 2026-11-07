@@ -74,6 +74,22 @@
           <div id="accounts"></div>
         </div>
 
+        <fieldset id="schedule-box" class="schedule-box" hidden>
+          <legend>When to post</legend>
+          <div class="when-options">
+            <label class="when-option"><input type="radio" name="when" id="when-now" value="now" checked> Post now</label>
+            <label class="when-option"><input type="radio" name="when" id="when-later" value="later"> Schedule</label>
+          </div>
+          <div id="schedule-picker" class="schedule-picker" hidden>
+            <label for="schedule-time">Date and time (your local time)</label>
+            <div class="schedule-row">
+              <input id="schedule-time" type="datetime-local" aria-describedby="schedule-zone schedule-error">
+              <span id="schedule-zone" class="zone-tag"></span>
+            </div>
+            <p id="schedule-error" class="field-error" role="alert" hidden></p>
+          </div>
+        </fieldset>
+
         <label id="confirm-box" class="confirm" hidden>
           <input id="confirm-publish" type="checkbox">
           <span class="confirm-body">

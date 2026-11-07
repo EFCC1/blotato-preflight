@@ -25,7 +25,57 @@ const page = {
   sendHint: document.getElementById('send-hint'),
   statusEmpty: document.getElementById('status-empty'),
   status: document.getElementById('status'),
+  scheduleBox: document.getElementById('schedule-box'),
+  whenNow: document.getElementById('when-now'),
+  whenLater: document.getElementById('when-later'),
+  schedulePicker: document.getElementById('schedule-picker'),
+  scheduleTime: document.getElementById('schedule-time'),
+  scheduleZone: document.getElementById('schedule-zone'),
+  scheduleError: document.getElementById('schedule-error'),
 };
+
+// The user's time zone name, for example "Africa/Lagos".
+const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function formatLocal(date) {
+  return `${date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} (${TIME_ZONE})`;
+}
+
+// "2026-11-10T16:30", the format the date and time picker uses, in the user's local time.
+function toPickerValue(date) {
+  const pad = (number) => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function isScheduling() {
+  return page.whenLater.checked;
+}
+
+// Reads the chosen time. Returns { ok: true, utc } with a UTC ISO 8601 time such as
+// 2026-11-10T15:30:00Z (or utc: null for "Post now"), or { ok: false, message }.
+function readSchedule() {
+  if (!isScheduling()) return { ok: true, utc: null };
+  const value = page.scheduleTime.value;
+  if (!value) return { ok: false, message: 'Pick a date and time to schedule the post.' };
+  const when = new Date(value); // The picker's value is read as the user's local time.
+  if (Number.isNaN(when.getTime())) return { ok: false, message: 'That date and time is not valid. Pick it again.' };
+  if (when.getTime() <= Date.now()) {
+    return { ok: false, message: `That time has already passed. Pick a time later than ${formatLocal(new Date())}.` };
+  }
+  return { ok: true, utc: when.toISOString().replace(/\.\d{3}Z$/, 'Z') };
+}
+
+// Shows or hides the picker, the error message and the right button label for the current choice.
+function updateScheduleUi() {
+  const scheduling = isScheduling();
+  const schedule = readSchedule();
+  page.schedulePicker.hidden = !scheduling;
+  page.scheduleError.hidden = schedule.ok;
+  page.scheduleError.textContent = schedule.ok ? '' : schedule.message;
+  if (!busy) page.send.textContent = scheduling ? 'Schedule post' : 'Send to Blotato';
+  if (!page.confirmBox.hidden) updateConfirmText();
+  updateSendButton();
+}
 
 const DEFAULT_SEND_HINT = 'This button turns on when no check has failed.';
 
@@ -107,16 +157,19 @@ function setBusy(isBusy) {
   page.confirmPublish.disabled = isBusy;
   page.platforms.querySelectorAll('input').forEach((box) => { box.disabled = isBusy; });
   page.accounts.querySelectorAll('select').forEach((select) => { select.disabled = isBusy; });
+  page.whenNow.disabled = isBusy;
+  page.whenLater.disabled = isBusy;
+  page.scheduleTime.disabled = isBusy;
   page.runPreflight.disabled = isBusy;
   updateSendButton();
 }
 
 function updateSendButton() {
   const confirmed = mockMode || page.confirmPublish.checked;
-  page.send.disabled = busy || !preflightToken || !confirmed;
+  page.send.disabled = busy || !preflightToken || !confirmed || !readSchedule().ok;
   // In real mode the hint follows the tick box, so it never says to tick a box that is already ticked.
   if (!mockMode && preflightToken && !busy) {
-    page.sendHint.textContent = confirmed ? 'Ready. Pressing Send publishes for real.' : 'Tick the box above to turn on publishing.';
+    page.sendHint.textContent = confirmed ? 'Ready. Pressing the button publishes for real.' : 'Tick the box above to turn on publishing.';
   }
 }
 
@@ -130,8 +183,11 @@ function resetResults() {
   page.accounts.replaceChildren();
   page.confirmBox.hidden = true;
   page.confirmPublish.checked = false;
+  page.scheduleBox.hidden = true;
+  page.whenNow.checked = true; // "Post now" is the default every time.
+  page.scheduleTime.value = '';
   page.sendHint.textContent = DEFAULT_SEND_HINT;
-  updateSendButton();
+  updateScheduleUi();
 }
 
 const MARKS = { pass: '✓ Pass', fail: '✕ Fail', skipped: '– Skipped' };
@@ -201,7 +257,11 @@ function chosenAccounts() {
 
 function updateConfirmText() {
   const targets = chosenAccounts().map((account) => `${platformLabels[account.platform]}: ${account.name}`).join(', ');
-  page.confirmText.textContent = `I understand this publishes a real post to ${targets}. It can't be undone from this app.`;
+  const schedule = readSchedule();
+  const action = schedule.ok && schedule.utc
+    ? `schedules a real post for ${formatLocal(new Date(schedule.utc))} to`
+    : 'publishes a real post to';
+  page.confirmText.textContent = `I understand this ${action} ${targets}. It can't be undone from this app.`;
 }
 
 async function runPreflight() {
@@ -217,12 +277,15 @@ async function runPreflight() {
     if (data.allPassed) {
       preflightToken = data.preflightToken;
       showAccounts(data.accounts);
+      page.scheduleZone.textContent = TIME_ZONE;
+      page.scheduleTime.min = toPickerValue(new Date());
+      page.scheduleBox.hidden = false;
       if (!mockMode) {
         updateConfirmText();
         page.confirmBox.hidden = false;
         page.sendHint.textContent = 'Tick the box above to turn on publishing.';
       } else {
-        page.sendHint.textContent = 'Ready. Press Send to Blotato. Mock mode posts nothing for real.';
+        page.sendHint.textContent = 'Ready. Press the button to send. Mock mode posts nothing for real.';
       }
     } else {
       page.sendHint.textContent = 'Send stays off until the failed checks are fixed. Fix them, then run Preflight again.';
@@ -287,7 +350,10 @@ async function followPost(box, platform, postSubmissionId, account) {
       return renderStatus(box, platform, 'published', '✓ Published', [detailLine('Post link: ', link(status.publicUrl || ''))]);
     }
     if (status.status === 'scheduled') {
-      return renderStatus(box, platform, 'scheduled', '✓ Scheduled', [detailLine(`Scheduled for ${status.scheduledTime || 'a later time'}.`)]);
+      const when = status.scheduledTime && !Number.isNaN(Date.parse(status.scheduledTime))
+        ? formatLocal(new Date(status.scheduledTime))
+        : 'a later time';
+      return renderStatus(box, platform, 'scheduled', 'Scheduled', [detailLine(`${accountNote}Will be published on ${when}.`)]);
     }
     if (status.status === 'failed') return showFailure(box, platform, status.explanation);
   }
@@ -300,6 +366,9 @@ async function sendPost() {
   const token = preflightToken;
   const accountIds = Object.fromEntries(chosenAccounts().map((account) => [account.platform, account.id]));
   const confirmPublish = page.confirmPublish.checked;
+  // Check the time again on click: a time picked a few minutes ago may have passed since.
+  const schedule = readSchedule();
+  if (!schedule.ok) return updateScheduleUi();
 
   preflightToken = null; // Each pass works once, so one click can't post the same thing twice.
   setBusy(true);
@@ -318,7 +387,9 @@ async function sendPost() {
   );
 
   try {
-    const { ok, data } = await postJson('/api/send', { ...form, preflightToken: token, confirmPublish, accountIds });
+    const body = { ...form, preflightToken: token, confirmPublish, accountIds };
+    if (schedule.utc) body.scheduledTime = schedule.utc; // UTC ISO 8601, e.g. 2026-11-10T15:30:00Z
+    const { ok, data } = await postJson('/api/send', body);
     if (!ok) throw new Error(data.message);
 
     await Promise.all(
@@ -337,10 +408,10 @@ async function sendPost() {
       });
     });
   } finally {
-    page.send.textContent = 'Send to Blotato';
     page.confirmPublish.checked = false;
     page.sendHint.textContent = 'Finished. Run Preflight again before sending another post.';
     setBusy(false);
+    page.send.textContent = isScheduling() ? 'Schedule post' : 'Send to Blotato';
   }
 }
 
@@ -350,6 +421,11 @@ page.confirmPublish.addEventListener('change', updateSendButton);
 page.caption.addEventListener('input', resetResults);
 page.mediaUrl.addEventListener('input', resetResults);
 page.platforms.addEventListener('change', resetResults);
+page.whenNow.addEventListener('change', updateScheduleUi);
+page.whenLater.addEventListener('change', updateScheduleUi);
+page.scheduleTime.addEventListener('input', updateScheduleUi);
+// A chosen time can pass while the page is open, so check it again every 15 seconds.
+setInterval(() => { if (!busy && isScheduling()) updateScheduleUi(); }, 15000);
 
 loadConfig().catch((error) => {
   page.resultsEmpty.textContent = `The page could not load its settings: ${error.message}`;

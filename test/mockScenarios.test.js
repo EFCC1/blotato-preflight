@@ -110,6 +110,62 @@ test('8. Only Instagram connected: TikTok and LinkedIn fail the account check', 
   assert.strictEqual(byName['Connected account: LinkedIn'], 'fail');
 });
 
+test.describe('scheduling', () => {
+  const post = () => ({ caption: 'Scheduled test', mediaUrl: link, platforms: ['instagram', 'tiktok'] });
+  const ids = { instagram: 'mock-instagram-1' };
+  const preflight = async () => (await api(app.base, '/api/preflight', { ...post(), mockScenario: 'success' })).data.preflightToken;
+
+  test('a future scheduledTime is sent as UTC ISO 8601, and the fake Blotato answers "scheduled"', async () => {
+    const future = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    future.setUTCSeconds(0, 0);
+    const offsetTime = future.toISOString().replace('Z', '+00:00'); // Same moment, written with an offset
+    const sent = await api(app.base, '/api/send', { ...post(), mockScenario: 'success', preflightToken: await preflight(), accountIds: ids, scheduledTime: offsetTime });
+    assert.strictEqual(sent.status, 200, JSON.stringify(sent.data));
+
+    const expected = future.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    assert.ok(app.output().includes(`"scheduledTime": "${expected}"`), 'Blotato gets the top-level scheduledTime in UTC, like 2026-11-10T15:30:00Z');
+    for (const result of sent.data.results) {
+      let status;
+      for (let poll = 1; poll <= 24; poll += 1) {
+        status = (await api(app.base, `/api/status/${result.postSubmissionId}`)).data;
+        if (status.status !== 'in-progress') break;
+      }
+      assert.strictEqual(status.status, 'scheduled');
+      assert.strictEqual(status.scheduledTime, expected);
+    }
+  });
+
+  test('a past scheduledTime is refused, and the preflight pass is not used up', async () => {
+    const token = await preflight();
+    const past = await api(app.base, '/api/send', { ...post(), preflightToken: token, accountIds: ids, scheduledTime: new Date(Date.now() - 60000).toISOString() });
+    assert.strictEqual(past.status, 400);
+    assert.match(past.data.message, /in the past/);
+
+    const notADate = await api(app.base, '/api/send', { ...post(), preflightToken: token, accountIds: ids, scheduledTime: 'next tuesday' });
+    assert.strictEqual(notADate.status, 400);
+    assert.match(notADate.data.message, /not a valid date/);
+
+    // The same pass still works once a valid future time is chosen.
+    const fixed = await api(app.base, '/api/send', { ...post(), preflightToken: token, accountIds: ids, scheduledTime: new Date(Date.now() + 3600000).toISOString() });
+    assert.strictEqual(fixed.status, 200);
+  });
+
+  test('scheduling still needs a passed preflight', async () => {
+    const refused = await api(app.base, '/api/send', { ...post(), preflightToken: 'made-up', accountIds: ids, scheduledTime: new Date(Date.now() + 3600000).toISOString() });
+    assert.strictEqual(refused.status, 409);
+  });
+
+  test('without a scheduledTime the fake Blotato still answers "published"', async () => {
+    const sent = await api(app.base, '/api/send', { ...post(), mockScenario: 'success', preflightToken: await preflight(), accountIds: ids });
+    let status;
+    for (let poll = 1; poll <= 24; poll += 1) {
+      status = (await api(app.base, `/api/status/${sent.data.results[0].postSubmissionId}`)).data;
+      if (status.status !== 'in-progress') break;
+    }
+    assert.strictEqual(status.status, 'published');
+  });
+});
+
 test('mock mode never contacts the real Blotato', () => {
   assert.ok(app.output().includes('[Blotato MOCK]'));
   assert.ok(!app.output().includes('backend.blotato.com'), 'no request may go to backend.blotato.com in mock mode');

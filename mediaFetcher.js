@@ -97,12 +97,12 @@ function validateMediaUrl(text) {
     throw new BlockedUrlError('That is not a valid web link. It should start with http:// or https://.');
   }
   if (url.username || url.password) {
-    throw new BlockedUrlError('Links containing a username or password are not allowed. Use a public link that needs no login.');
+    throw new BlockedUrlError('Links containing a username or password are not allowed. Remove the "name:password@" part and use a public link that needs no login.');
   }
   if (allowPrivateMedia) return url;
 
   if (url.port && url.port !== '80' && url.port !== '443') {
-    throw new BlockedUrlError('Links using an unusual port number are blocked for safety. Use a normal public link.');
+    throw new BlockedUrlError('Links using an unusual port number (like :8080) are blocked for safety. Use a normal public link without a port number, such as https://example.com/photo.jpg.');
   }
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
   const isIpAddress = net.isIP(hostname) !== 0;
