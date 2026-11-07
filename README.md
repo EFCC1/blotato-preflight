@@ -69,9 +69,11 @@ Mock mode uses a fake Blotato built into the app, which answers exactly like the
 5. Pick a **Mock scenario**, then click **Send to Blotato**.
 6. To try another scenario, click **Run Preflight** again. Each pass can be used once.
 
+In mock mode, a post that goes "In progress" takes about 25 to 40 seconds to reach its final result.
+
 | Scenario | What you should see |
 |---|---|
-| 1. Success | In progress, then ✓ Published with a fake post link (about 15 seconds) |
+| 1. Success | In progress, then ✓ Published with a fake post link (about 25 to 40 seconds) |
 | 2. Wrong API key | ✕ Failed at once, with "Copy the key again from Blotato Settings > API". Pick it **before** Run Preflight instead, and the account check fails and Send stays off. |
 | 3. Media fetch failed | In progress, then ✕ Failed: use a direct public file link |
 | 4. Bad media file | In progress, then ✕ Failed: use a direct public file link |

@@ -498,7 +498,8 @@ input[type="radio"] { width: 18px; height: 18px; margin: 0; accent-color: var(--
   color: var(--text-2);
 }
 .field-error { display: flex; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--fail); }
-.field-error::before { content: "✕"; font-weight: 700; }
+/* Only draw the ✕ while the error is showing, so a hidden error leaves no stray symbol. */
+.field-error:not([hidden])::before { content: "✕"; font-weight: 700; }
 
 /* Failed */
 .status-item.failed { border-left-color: var(--fail); background: #FFFBFB; }
