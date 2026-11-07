@@ -1,0 +1,8 @@
+# Secrets: never share or upload these
+.env
+.env.*
+!.env.example
+# Installed packages: npm install can recreate them
+node_modules
+# Logs can hold details of your posts
+*.log

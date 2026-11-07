@@ -1,0 +1,8 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "blotato-preflight", "runtimeExecutable": "npm", "runtimeArgs": ["start"], "port": 3000 },
+    { "name": "preflight-test-server", "runtimeExecutable": "node", "runtimeArgs": ["test/startTestServer.js"], "port": 3000 },
+    { "name": "preflight-stubbed-real", "runtimeExecutable": "node", "runtimeArgs": ["test/startStubbedRealServer.js"], "port": 3000 }
+  ]
+}

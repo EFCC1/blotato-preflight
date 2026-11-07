@@ -1,0 +1,466 @@
+/* Blotato Preflight: visual design.
+   All colours are defined once here and reused everywhere. */
+
+:root {
+  /* Interface */
+  --bg: #F5F7FA;
+  --surface: #FFFFFF;
+  --surface-2: #F8FAFC;
+  --input-bg: #FFFFFF;
+  --text: #0F172A;
+  --text-2: #64748B; /* Secondary text, hints and placeholders */
+  --text-disabled: #94A3B8; /* Only for disabled text and decorative icons */
+  --border: #E2E8F0;
+  --border-strong: #CBD5E1;
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
+  --primary-active: #1E40AF;
+  --focus: #60A5FA;
+
+  /* Status: text, background, border */
+  --pass: #15803D; --pass-bg: #DCFCE7; --pass-border: #BBF7D0;
+  --fail: #B91C1C; --fail-bg: #FEE2E2; --fail-border: #FECACA;
+  --skip: #A16207; --skip-bg: #FEF3C7; --skip-border: #FDE68A;
+  --progress: #1D4ED8; --progress-bg: #DBEAFE; --progress-border: #BFDBFE;
+  --published: #166534; --published-bg: #DCFCE7; --published-border: #BBF7D0;
+  --idle: #64748B; --idle-bg: #F1F5F9; --idle-border: #E2E8F0;
+  --amber-text: #92400E; --amber-bg: #FFFBEB; --amber-border: #FDE68A;
+
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  --ease: 160ms ease;
+  --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 14px/1.55 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p { margin: 0; }
+a { color: var(--primary); text-underline-offset: 2px; text-decoration: none; overflow-wrap: anywhere; }
+a:hover { text-decoration: underline; color: var(--primary-hover); }
+a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
+
+/* ---------- Page layout ---------- */
+.app {
+  width: calc(100% - 40px);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 48px 0 40px;
+}
+
+/* ---------- Mode notices ---------- */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  padding: 10px 16px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.banner-icon { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.banner-mock { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber-border); }
+.banner-real { background: #FEF2F2; color: var(--fail); border-color: var(--fail-border); font-weight: 600; }
+
+/* ---------- Header ---------- */
+.page-header { margin-bottom: 32px; }
+.page-header h1 { font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; }
+.page-header p { margin-top: 8px; font-size: 15px; color: var(--text-2); line-height: 1.6; }
+
+/* ---------- Cards and workflow steps ---------- */
+.card {
+  margin-bottom: 24px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.step-header h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+h3 { font-size: 14px; font-weight: 650; margin-bottom: 12px; }
+
+.step-num {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 650;
+  background: var(--idle-bg);
+  color: var(--idle);
+  border: 1px solid var(--idle-border);
+  transition: background var(--ease), color var(--ease), border-color var(--ease);
+}
+
+/* Step states follow what is already on the page; no new logic.
+   Step 1 is active until results appear, then complete.
+   Step 2 is active once results appear, and complete once something is sent.
+   Step 3 is active once something is sent. */
+.step-1 .step-num { background: var(--progress-bg); color: var(--progress); border-color: var(--progress-border); }
+.app:has(#summary:not([hidden])) .step-1 .step-num,
+.app:has(#status .status-item) .step-1 .step-num,
+.app:has(#status .status-item) .step-2 .step-num { background: var(--pass-bg); color: var(--pass); border-color: var(--pass-border); }
+.app:has(#summary:not([hidden])) .step-2 .step-num,
+.app:has(#status .status-item) .step-3 .step-num { background: var(--progress-bg); color: var(--progress); border-color: var(--progress-border); }
+.app:has(#status .status-item) .step-2 .step-num { background: var(--pass-bg); color: var(--pass); border-color: var(--pass-border); }
+
+/* ---------- Forms ---------- */
+.field { margin: 0 0 20px; padding: 0; border: 0; min-width: 0; }
+
+label, legend {
+  display: block;
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+textarea, input[type="url"], select {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  transition: border-color var(--ease), box-shadow var(--ease), background var(--ease);
+}
+textarea { min-height: 120px; resize: vertical; }
+select {
+  min-height: 44px;
+  padding-right: 40px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%2364748B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  cursor: pointer;
+}
+::placeholder { color: var(--text-2); opacity: 1; }
+textarea:hover, input[type="url"]:hover, select:hover { border-color: #94A3B8; }
+textarea:focus, input[type="url"]:focus, select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45);
+}
+textarea:disabled, input:disabled, select:disabled {
+  background: var(--idle-bg);
+  color: var(--text-2);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+.hint { margin-top: 8px; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+
+/* Platform choices: the whole tile is clickable */
+.platforms { display: flex; flex-wrap: wrap; gap: 8px; }
+.platforms label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 16px 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color var(--ease), background var(--ease);
+}
+.platforms label:hover { border-color: #94A3B8; }
+.platforms label:has(input:checked) { border-color: var(--primary); background: #EFF6FF; }
+.platforms label:has(input:disabled) { cursor: not-allowed; opacity: 0.7; }
+.platforms label:has(input:focus-visible) { box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.45); }
+
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: inherit;
+}
+input[type="checkbox"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.scenario-box {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* ---------- Buttons ---------- */
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.actions .hint { margin-top: 0; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease);
+}
+.btn-primary { background: var(--primary); color: #FFFFFF; }
+.btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+.btn-primary:active:not(:disabled) { background: var(--primary-active); }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus); }
+.btn:disabled {
+  background: var(--border);
+  border-color: var(--border);
+  color: var(--text-2);
+  cursor: not-allowed;
+}
+
+/* ---------- Empty states ---------- */
+.empty-state {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-2);
+  text-align: center;
+}
+#status-empty { margin-bottom: 0; }
+
+/* ---------- Status badges (preflight rows) ---------- */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mark-pass { color: var(--pass); background: var(--pass-bg); border-color: var(--pass-border); }
+.mark-fail { color: var(--fail); background: var(--fail-bg); border-color: var(--fail-border); }
+.mark-skipped { color: var(--skip); background: var(--skip-bg); border-color: var(--skip-border); }
+
+/* ---------- Summary above the results ---------- */
+.summary {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  column-gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid;
+  border-radius: 10px;
+}
+.summary::before {
+  grid-row: 1 / span 3;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+.summary-blocked { background: #FEF2F2; border-color: var(--fail-border); }
+.summary-blocked::before { content: "✕"; background: var(--fail); }
+.summary-ready { background: #F0FDF4; border-color: var(--pass-border); }
+.summary-ready::before { content: "✓"; background: var(--pass); }
+.summary-warning { background: var(--amber-bg); border-color: var(--skip-border); }
+.summary-warning::before { content: "!"; background: var(--skip); }
+.summary-title { font-size: 16px; font-weight: 650; line-height: 1.5; }
+.summary-blocked .summary-title { color: var(--fail); }
+.summary-ready .summary-title { color: var(--pass); }
+.summary-warning .summary-title { color: var(--amber-text); }
+.summary-counts { font-size: 13px; color: var(--text-2); }
+.summary-list { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--text); }
+.summary-list li + li { margin-top: 2px; }
+
+/* ---------- Preflight result rows ---------- */
+.results {
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.results:empty { display: none; }
+.results li {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  transition: background var(--ease);
+}
+.results li:first-child { border-top: 0; }
+.results li.result-fail { background: #FEF7F7; }
+.results li.result-skipped { background: #FFFDF5; }
+.results .mark { justify-self: start; margin-top: 1px; }
+.check-text { min-width: 0; }
+.check-name { font-weight: 600; color: var(--text); }
+.check-reason { margin-top: 2px; font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+
+/* ---------- Choosing accounts ---------- */
+.accounts-box {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.account-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-weight: 400;
+}
+.account-row + .account-row { margin-top: 8px; }
+.account-label { font-size: 13px; font-weight: 600; }
+.account-row select { min-width: 0; }
+
+/* ---------- Real-mode confirmation (a safety step, kept prominent) ---------- */
+.confirm {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #FEF2F2;
+  border: 1px solid var(--fail-border);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.confirm input { flex: none; margin-top: 2px; accent-color: var(--fail); }
+.confirm-body { display: block; min-width: 0; }
+.confirm-title { display: block; margin-bottom: 4px; font-weight: 650; color: #991B1B; }
+#confirm-text { display: block; color: var(--text); overflow-wrap: anywhere; }
+
+/* ---------- Live status: activity feed ---------- */
+.activity { display: grid; gap: 12px; }
+.activity:empty { display: none; }
+
+.status-item {
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--idle);
+  border-radius: 10px;
+  transition: border-color var(--ease), background var(--ease);
+}
+.status-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.status-platform { font-weight: 650; font-size: 14px; }
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--idle);
+  background: var(--idle-bg);
+  border-color: var(--idle-border);
+}
+.status-detail { margin-top: 8px; font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.status-detail strong { color: var(--text); font-weight: 600; }
+.status-raw { padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12px; }
+
+/* Sending */
+.status-item.sending { border-left-color: var(--border-strong); }
+.sending .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* In progress: small spinner */
+.status-item.in-progress { border-left-color: var(--progress); }
+.in-progress .status-badge { color: var(--progress); background: var(--progress-bg); border-color: var(--progress-border); }
+.in-progress .status-badge::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--progress-border);
+  border-top-color: var(--progress);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Published and scheduled */
+.status-item.published, .status-item.scheduled { border-left-color: var(--pass); background: #FBFEFC; }
+.published .status-badge, .scheduled .status-badge { color: var(--published); background: var(--published-bg); border-color: var(--published-border); }
+.published .status-detail a { font-weight: 500; }
+
+/* Failed */
+.status-item.failed { border-left-color: var(--fail); background: #FFFBFB; }
+.failed .status-badge { color: var(--fail); background: var(--fail-bg); border-color: var(--fail-border); }
+
+/* Timed out: amber, different from both failed and in progress */
+.status-item.timed-out { border-left-color: #D97706; background: var(--amber-bg); }
+.timed-out .status-badge { color: var(--amber-text); background: #FEF3C7; border-color: var(--amber-border); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Motion preference ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ---------- Phones ---------- */
+@media (max-width: 640px) {
+  .app { width: 100%; padding: 24px 16px 32px; }
+  .page-header { margin-bottom: 24px; }
+  .page-header h1 { font-size: 25px; }
+  .card { padding: 16px; margin-bottom: 16px; }
+  .step-header { margin-bottom: 16px; padding-bottom: 12px; }
+  .step-header h2 { font-size: 16px; }
+  .btn { width: 100%; }
+  .actions { flex-direction: column; align-items: stretch; }
+  .results li { grid-template-columns: 1fr; gap: 6px; padding: 12px; }
+  .account-row { grid-template-columns: 1fr; gap: 4px; }
+  .platforms label { flex: 1 1 auto; }
+}

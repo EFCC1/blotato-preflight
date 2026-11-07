@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blotato Preflight</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <div id="mock-banner" class="banner banner-mock" role="note" hidden>
+      <svg class="banner-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 1.5h4M6.75 1.5v4.2L2.6 12.6A1.3 1.3 0 0 0 3.7 14.5h8.6a1.3 1.3 0 0 0 1.1-1.9L9.25 5.7V1.5M4.5 10h7"/></svg>
+      <span>MOCK MODE: nothing is really posted</span>
+    </div>
+    <div id="real-banner" class="banner banner-real" role="note" hidden>
+      <svg class="banner-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 14.6 13.5H1.4L8 1.8ZM8 6.2v3.3M8 11.6v.1"/></svg>
+      <span>REAL MODE: sending publishes real posts</span>
+    </div>
+
+    <header class="page-header">
+      <h1>Blotato Preflight</h1>
+      <p>Check your post before it goes out, and find out why if it fails.</p>
+    </header>
+
+    <main class="workflow">
+      <section class="card step step-1" aria-labelledby="step-1-title">
+        <div class="step-header">
+          <span class="step-num" aria-hidden="true">1</span>
+          <h2 id="step-1-title">Your post</h2>
+        </div>
+
+        <div class="field">
+          <label for="caption">Caption</label>
+          <textarea id="caption" rows="5" placeholder="Write your caption here"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="media-url">Media URL</label>
+          <input id="media-url" type="url" placeholder="https://example.com/photo.jpg" autocomplete="off" aria-describedby="media-url-hint">
+          <p id="media-url-hint" class="hint">One public link to an image or video.</p>
+        </div>
+
+        <fieldset class="field">
+          <legend>Platforms</legend>
+          <div id="platforms" class="platforms"></div>
+        </fieldset>
+
+        <div id="scenario-box" class="scenario-box" hidden>
+          <label for="scenario">Mock scenario</label>
+          <select id="scenario" aria-describedby="scenario-hint"></select>
+          <p id="scenario-hint" class="hint">Forces a result so you can test failures. Scenarios 2 and 8 change the account check if chosen before Run Preflight.</p>
+        </div>
+
+        <div class="actions">
+          <button id="run-preflight" class="btn btn-primary" type="button">Run Preflight</button>
+        </div>
+      </section>
+
+      <section class="card step step-2" aria-labelledby="step-2-title">
+        <div class="step-header">
+          <span class="step-num" aria-hidden="true">2</span>
+          <h2 id="step-2-title">Preflight results</h2>
+        </div>
+
+        <p id="results-empty" class="empty-state">Run Preflight to see the results here.</p>
+        <div id="summary" role="status" hidden></div>
+        <ul id="results" class="results"></ul>
+
+        <div id="accounts-box" class="accounts-box" hidden>
+          <h3>Post as</h3>
+          <div id="accounts"></div>
+        </div>
+
+        <label id="confirm-box" class="confirm" hidden>
+          <input id="confirm-publish" type="checkbox">
+          <span class="confirm-body">
+            <span class="confirm-title">Confirm real publishing</span>
+            <span id="confirm-text"></span>
+          </span>
+        </label>
+
+        <div class="actions">
+          <button id="send" class="btn btn-primary" type="button" disabled>Send to Blotato</button>
+          <p id="send-hint" class="hint">This button turns on when no check has failed.</p>
+        </div>
+      </section>
+
+      <section class="card step step-3" aria-labelledby="step-3-title">
+        <div class="step-header">
+          <span class="step-num" aria-hidden="true">3</span>
+          <h2 id="step-3-title">Live status</h2>
+        </div>
+        <p id="status-empty" class="empty-state">Nothing sent yet.</p>
+        <div id="status" class="activity" aria-live="polite"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
