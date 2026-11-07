@@ -3,6 +3,7 @@
 // and real is the web address below, so both modes run exactly the same code.
 // Request and response shapes follow https://backend.blotato.com/openapi.json
 
+const fs = require('fs');
 const { PORT, mockMode } = require('./config');
 const mock = require('./mockBlotato');
 
@@ -96,6 +97,44 @@ async function uploadMedia(mediaUrl) {
   return data.url;
 }
 
+// The Content-Type sent with the raw file, worked out from the file's ending.
+const CONTENT_TYPES = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+  mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
+};
+function contentTypeFromFilename(filename) {
+  const ext = String(filename).split('.').pop().toLowerCase();
+  return CONTENT_TYPES[ext] || 'application/octet-stream';
+}
+
+// Uploads a LOCAL file using Blotato's presigned flow (OpenAPI: POST /v2/media/uploads):
+//   1. Ask for a one-time upload URL, giving the file name.
+//   2. PUT the raw bytes straight to that URL (no API key: the URL itself is the permission).
+//   3. Use the returned public URL when posting.
+// Returns the public URL. The file is uploaded once, then used for every platform.
+async function uploadMediaFile({ filePath, filename }) {
+  const bytes = await fs.promises.readFile(filePath);
+  const { presignedUrl, publicUrl } = await callBlotato('POST', '/media/uploads', { filename });
+
+  log('PUT (raw file bytes)', { url: presignedUrl, bytes: bytes.length, contentType: contentTypeFromFilename(filename) });
+  let response;
+  try {
+    response = await fetch(presignedUrl, {
+      method: 'PUT',
+      body: bytes,
+      headers: { 'Content-Type': contentTypeFromFilename(filename) },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const reason = error.name === 'TimeoutError' ? 'Uploading the file to Blotato timed out' : `Could not upload the file to Blotato: ${(error.cause && error.cause.code) || error.message}`;
+    throw new BlotatoError(reason);
+  }
+  if (!response.ok) {
+    throw new BlotatoError(`Uploading the file to Blotato failed with status ${response.status}.`, response.status);
+  }
+  return publicUrl;
+}
+
 function buildTarget(platform) {
   if (platform === 'tiktok') {
     return {
@@ -140,6 +179,7 @@ module.exports = {
   setMockScenario,
   listAccounts,
   uploadMedia,
+  uploadMediaFile,
   publishPost,
   getPostStatus,
 };

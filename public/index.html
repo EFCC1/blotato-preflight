@@ -38,11 +38,37 @@
           <textarea id="caption" rows="5" placeholder="Write your caption here"></textarea>
         </div>
 
-        <div class="field">
-          <label for="media-url">Media URL</label>
-          <input id="media-url" type="url" placeholder="https://example.com/photo.jpg" autocomplete="off" aria-describedby="media-url-hint">
-          <p id="media-url-hint" class="hint">One public link to an image or video.</p>
-        </div>
+        <fieldset class="field media-field">
+          <legend>Media</legend>
+          <div class="media-tabs" role="tablist" aria-label="How to add media">
+            <button type="button" id="tab-upload" class="media-tab" role="tab" aria-selected="true">Upload a file</button>
+            <button type="button" id="tab-link" class="media-tab" role="tab" aria-selected="false">Paste a link</button>
+          </div>
+
+          <div id="upload-panel" class="media-panel" role="tabpanel" aria-labelledby="tab-upload">
+            <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choose a file, or drag one here">
+              <input id="file-input" type="file" accept="image/*,video/*" hidden>
+              <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5V4m0 0 4 4m-4-4-4 4M5 16v2.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V16"/></svg>
+              <p class="dropzone-text">Drag an image or video here, or <span class="dropzone-link">choose a file</span></p>
+              <p class="hint" id="upload-hint">Images and videos only.</p>
+            </div>
+            <div id="file-preview" class="file-preview" hidden>
+              <div class="preview-thumb" id="preview-thumb"></div>
+              <div class="preview-meta">
+                <div id="preview-name" class="preview-name"></div>
+                <div id="preview-size" class="preview-size hint"></div>
+                <button type="button" id="remove-file" class="btn-link">Remove file</button>
+              </div>
+            </div>
+            <p id="upload-error" class="field-error" role="alert" hidden></p>
+          </div>
+
+          <div id="link-panel" class="media-panel" role="tabpanel" aria-labelledby="tab-link" hidden>
+            <label for="media-url">Media URL</label>
+            <input id="media-url" type="url" placeholder="https://example.com/photo.jpg" autocomplete="off" aria-describedby="media-url-hint">
+            <p id="media-url-hint" class="hint">One public link to an image or video.</p>
+          </div>
+        </fieldset>
 
         <fieldset class="field">
           <legend>Platforms</legend>

@@ -87,6 +87,27 @@ function createMockRouter() {
     res.status(201).json({ url: `https://database.blotato.io/mock/${id}`, id });
   });
 
+  // Presigned upload, step 1: hand back a one-time upload URL and the final public URL.
+  // This copies the real API's POST /v2/media/uploads exactly (fields: filename -> presignedUrl, publicUrl).
+  router.post('/media/uploads', (req, res) => {
+    if (!req.body || typeof req.body.filename !== 'string' || !req.body.filename) {
+      return sendError(res, 422, '"filename" is missing.');
+    }
+    const id = `upload_${crypto.randomUUID()}`;
+    const safeName = req.body.filename.replace(/[^\w.\-]/g, '_');
+    const base = `${req.protocol}://${req.get('host')}${req.baseUrl}`;
+    res.status(201).json({
+      presignedUrl: `${base}/media/put/${id}`,
+      publicUrl: `https://database.blotato.io/mock/${id}/${safeName}`,
+    });
+  });
+
+  // Presigned upload, step 2: the fake upload URL just accepts the raw bytes and says OK,
+  // the way real cloud storage does. It needs no API key, because the URL itself is the permission.
+  router.put('/media/put/:id', express.raw({ type: '*/*', limit: '1gb' }), (req, res) => {
+    res.status(200).json({ ok: true, bytes: Buffer.isBuffer(req.body) ? req.body.length : 0 });
+  });
+
   router.post('/posts', (req, res) => {
     if (currentScenario === 'rate-limit') {
       return sendError(res, 429, 'The service is receiving too many requests from you');

@@ -12,7 +12,7 @@ This app catches those problems first.
 
 ## What it does
 
-1. You enter a caption and one public image or video link, and tick Instagram, TikTok and/or LinkedIn.
+1. You enter a caption, add one image or video — **upload a file** or **paste a public link** — and tick Instagram, TikTok and/or LinkedIn.
 2. **Run Preflight** checks:
    - the link opens
    - it isn't a Google Drive share link
@@ -30,6 +30,25 @@ This app catches those problems first.
    - **Timed out**, after 2 minutes
 
 Platform rules (formats, sizes, ratios, caption limits) live in `platformRules.js`, with the source of each value. Your API key stays on the server: the page never sees it, and the logs show it as `[HIDDEN]`.
+
+## Add media: upload a file, or paste a link
+
+Step 1 gives you two ways to add your image or video:
+
+- **Upload a file** (the default). Drag a file onto the box, or click to choose one. The app accepts images and videos only, shows the file name, size and a small preview (an image thumbnail, or a video's first frame), and checks the file right here on your computer. A file bigger than the largest size any platform allows is refused with a clear message.
+- **Paste a link.** Give one public link to an image or video, exactly as before. The app opens the link safely and checks the file it finds there.
+
+Both ways run the same format, size, aspect-ratio, caption and account checks. The only difference: for an upload, the "link opens" and "Google Drive link" checks are shown as **not needed**, because there is no link.
+
+### How an uploaded file reaches Blotato
+
+Blotato only posts media that lives on its own domain, so an uploaded file is copied to Blotato first, using Blotato's **presigned upload** flow. "Presigned" means Blotato hands back a one-time web address that already carries permission to upload, so the file goes straight to Blotato's storage and your API key is never attached to the file itself.
+
+1. The app asks Blotato for an upload address: `POST /v2/media/uploads` with the file name. Blotato returns a `presignedUrl` (where to put the file) and a `publicUrl` (the file's final address).
+2. The app sends the raw file to the `presignedUrl` with an HTTP `PUT`.
+3. The app publishes the post using the `publicUrl`.
+
+The file is uploaded **once**, even when you post to all three platforms. While it waits to be sent, the app keeps it in a temporary `uploads/` folder under a random name, then deletes it after it is sent, or after one hour if it is never sent. `uploads/` is kept out of git. In mock mode, the fake Blotato runs this exact same flow and returns a fake `publicUrl`, so nothing really leaves your computer.
 
 ## Run it on Windows
 
@@ -63,7 +82,7 @@ npm test
 Mock mode uses a fake Blotato built into the app, which answers exactly like the real one.
 
 1. Type a caption.
-2. Paste `https://picsum.photos/1080/1350` as the Media URL.
+2. Add media: either **Upload a file** (drag in an image or video), or switch to **Paste a link** and paste `https://picsum.photos/1080/1350`.
 3. Tick all three platforms.
 4. Click **Run Preflight**. Send turns on.
 5. Pick a **Mock scenario**, then click **Send to Blotato**.
@@ -118,8 +137,9 @@ The app only uses real mode when `BLOTATO_MOCK` says `false`. Anything else, inc
 |---|---|
 | `GET /api/health` | Says the app is running and which mode it is in, and lists the platforms and mock scenarios. |
 | `GET /api/accounts` | Lists your connected social accounts (id, platform, username and name only). |
-| `POST /api/preflight` | Runs every check on `{ caption, mediaUrl, platforms }`. Returns the results and, if nothing failed, a one-time pass. |
-| `POST /api/send` | Uploads the media to Blotato and publishes to each platform. Needs the one-time pass, and in real mode `confirmPublish: true`. Optional `scheduledTime` (ISO 8601, in the future): the post is scheduled instead of published now, and the time is sent to Blotato in UTC. |
+| `POST /api/uploads` | Receives an uploaded file as raw bytes (the file name comes in the `X-Filename` header), saves it under a random name, and returns an `uploadId`. Rejects a file bigger than any platform allows. |
+| `POST /api/preflight` | Runs every check. Body is `{ caption, platforms, source }` plus `mediaUrl` (a link) or `uploadId` (an upload). Returns the results and, if nothing failed, a one-time pass. |
+| `POST /api/send` | Copies the media to Blotato (a link via `POST /media`, an upload via the presigned flow) and publishes to each platform. Needs the one-time pass, and in real mode `confirmPublish: true`. Optional `scheduledTime` (ISO 8601, in the future): the post is scheduled instead of published now, and the time is sent to Blotato in UTC. |
 | `GET /api/status/:postSubmissionId` | Asks Blotato for a post's status: in-progress, published, scheduled or failed. |
 
 The page only calls these. In mock mode, the fake Blotato also answers at `/mock-blotato/v2/...`, but only the server uses it.
@@ -127,7 +147,8 @@ The page only calls these. In mock mode, the fake Blotato also answers at `/mock
 Blotato endpoints used (base `https://backend.blotato.com/v2`, header `blotato-api-key`):
 
 - `GET /users/me/accounts`
-- `POST /media`
+- `POST /media` (copy media from a public link)
+- `POST /media/uploads` (presigned upload for a local file: returns `presignedUrl` and `publicUrl`)
 - `POST /posts`
 - `GET /posts/{postSubmissionId}`
 
@@ -142,7 +163,8 @@ blotato project/
 ├── mediaFetcher.js      Downloads media links safely, blocking private and internal addresses
 ├── platformRules.js     Formats, sizes, aspect ratios and caption limits, with sources
 ├── errorExplainer.js    Turns Blotato errors into plain English and a fix
-├── config.js            Reads the settings (mode, port)
+├── config.js            Reads the settings (mode, port, max upload size)
+├── uploads/             Uploaded files waiting to be sent (temporary, random names, kept out of git)
 ├── public/
 │   ├── index.html       The page
 │   ├── app.js           The page's behaviour

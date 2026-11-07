@@ -32,6 +32,19 @@ const page = {
   scheduleTime: document.getElementById('schedule-time'),
   scheduleZone: document.getElementById('schedule-zone'),
   scheduleError: document.getElementById('schedule-error'),
+  tabUpload: document.getElementById('tab-upload'),
+  tabLink: document.getElementById('tab-link'),
+  uploadPanel: document.getElementById('upload-panel'),
+  linkPanel: document.getElementById('link-panel'),
+  dropzone: document.getElementById('dropzone'),
+  fileInput: document.getElementById('file-input'),
+  filePreview: document.getElementById('file-preview'),
+  previewThumb: document.getElementById('preview-thumb'),
+  previewName: document.getElementById('preview-name'),
+  previewSize: document.getElementById('preview-size'),
+  removeFile: document.getElementById('remove-file'),
+  uploadError: document.getElementById('upload-error'),
+  uploadHint: document.getElementById('upload-hint'),
 };
 
 // The user's time zone name, for example "Africa/Lagos".
@@ -83,6 +96,17 @@ let platformLabels = {};
 let mockMode = true;
 let busy = false; // True while checking or sending.
 let preflightToken = null; // Proof from the backend that this exact post passed.
+let mediaSource = 'upload'; // 'upload' (a chosen file) or 'link' (a pasted URL).
+let uploadInfo = null; // { uploadId, filename, size } once a file has been uploaded.
+let uploading = false; // True while a chosen file is being sent to this app's server.
+let maxUploadBytes = Infinity; // The biggest file the server will accept, from /api/health.
+
+// A readable file size, e.g. "2.40 MB" or "18 KB".
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} bytes`;
+}
 
 // Small helper: creates an element with some text. Using textContent means a
 // strange link or error message can never run as code on this page.
@@ -117,17 +141,141 @@ function postJson(url, body) {
 }
 
 function readForm() {
-  return {
+  const form = {
     caption: page.caption.value,
-    mediaUrl: page.mediaUrl.value,
     platforms: [...page.platforms.querySelectorAll('input:checked')].map((box) => box.value),
     mockScenario: page.scenario.value,
+    source: mediaSource === 'upload' ? 'upload' : 'url',
   };
+  if (mediaSource === 'upload') {
+    form.uploadId = uploadInfo ? uploadInfo.uploadId : '';
+  } else {
+    form.mediaUrl = page.mediaUrl.value;
+  }
+  return form;
+}
+
+// ---------- Media: upload a file, or paste a link ----------
+
+// Switches between the "Upload a file" and "Paste a link" tabs.
+function setMediaSource(source) {
+  mediaSource = source;
+  const upload = source === 'upload';
+  page.tabUpload.setAttribute('aria-selected', String(upload));
+  page.tabLink.setAttribute('aria-selected', String(!upload));
+  page.tabUpload.classList.toggle('is-active', upload);
+  page.tabLink.classList.toggle('is-active', !upload);
+  page.uploadPanel.hidden = !upload;
+  page.linkPanel.hidden = upload;
+  resetResults();
+}
+
+function showUploadError(message) {
+  page.uploadError.textContent = message || '';
+  page.uploadError.hidden = !message;
+}
+
+// Forgets the chosen file and shows the drop zone again.
+function clearFile() {
+  uploadInfo = null;
+  page.fileInput.value = '';
+  page.filePreview.hidden = true;
+  page.previewThumb.replaceChildren();
+  page.dropzone.hidden = false;
+}
+
+function removeFile() {
+  clearFile();
+  showUploadError('');
+  resetResults();
+}
+
+// Shows the file's name, size and a small picture: an image thumbnail, or a video's first frame.
+function showPreview(file) {
+  page.previewName.textContent = file.name;
+  page.previewSize.textContent = formatBytes(file.size);
+  page.previewThumb.replaceChildren();
+  page.filePreview.hidden = false;
+  page.dropzone.hidden = true;
+
+  if (file.type.startsWith('image/')) {
+    const url = URL.createObjectURL(file);
+    const img = element('img');
+    img.alt = 'Image preview';
+    img.src = url;
+    img.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+    page.previewThumb.replaceChildren(img);
+    return;
+  }
+
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'metadata';
+  video.src = url;
+  page.previewThumb.replaceChildren(video); // If drawing the frame fails, the video itself is the preview.
+  video.addEventListener('loadeddata', () => {
+    try { video.currentTime = Math.min(0.1, (video.duration || 1) / 2); } catch { /* ignore */ }
+  }, { once: true });
+  video.addEventListener('seeked', () => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const img = element('img');
+      img.alt = 'Video first frame';
+      img.src = canvas.toDataURL('image/png');
+      page.previewThumb.replaceChildren(img);
+    } catch { /* keep the video element as the preview */ }
+    URL.revokeObjectURL(url);
+  }, { once: true });
+}
+
+// Checks the chosen file, previews it, and sends its bytes to this app's own server.
+async function handleFile(file) {
+  if (!file) return;
+  showUploadError('');
+  const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
+  if (!isMedia) {
+    clearFile();
+    return showUploadError('That is not an image or a video. Choose an image or video file.');
+  }
+  if (file.size > maxUploadBytes) {
+    clearFile();
+    return showUploadError(`That file is ${formatBytes(file.size)}, which is too big. The most any platform allows is ${formatBytes(maxUploadBytes)}.`);
+  }
+
+  showPreview(file);
+  resetResults();
+  uploading = true;
+  uploadInfo = null;
+  page.previewSize.textContent = `${formatBytes(file.size)} · uploading…`;
+  updateSendButton();
+  try {
+    const response = await fetch('/api/uploads', {
+      method: 'POST',
+      headers: { 'X-Filename': encodeURIComponent(file.name), 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'The upload failed.');
+    uploadInfo = { uploadId: data.uploadId, filename: data.filename, size: data.size };
+    page.previewSize.textContent = formatBytes(file.size);
+  } catch (error) {
+    clearFile();
+    showUploadError(error.message);
+  } finally {
+    uploading = false;
+    updateSendButton();
+  }
 }
 
 async function loadConfig() {
   const { data: config } = await requestJson('/api/health');
   mockMode = config.mock;
+  maxUploadBytes = config.maxUploadBytes || Infinity;
 
   document.getElementById(config.mock ? 'mock-banner' : 'real-banner').hidden = false;
   page.scenarioBox.hidden = !config.mock;
@@ -154,6 +302,10 @@ function setBusy(isBusy) {
   page.caption.disabled = isBusy;
   page.mediaUrl.disabled = isBusy;
   page.scenario.disabled = isBusy;
+  page.fileInput.disabled = isBusy;
+  page.tabUpload.disabled = isBusy;
+  page.tabLink.disabled = isBusy;
+  page.removeFile.disabled = isBusy;
   page.confirmPublish.disabled = isBusy;
   page.platforms.querySelectorAll('input').forEach((box) => { box.disabled = isBusy; });
   page.accounts.querySelectorAll('select').forEach((select) => { select.disabled = isBusy; });
@@ -166,7 +318,7 @@ function setBusy(isBusy) {
 
 function updateSendButton() {
   const confirmed = mockMode || page.confirmPublish.checked;
-  page.send.disabled = busy || !preflightToken || !confirmed || !readSchedule().ok;
+  page.send.disabled = busy || uploading || !preflightToken || !confirmed || !readSchedule().ok;
   // In real mode the hint follows the tick box, so it never says to tick a box that is already ticked.
   if (!mockMode && preflightToken && !busy) {
     page.sendHint.textContent = confirmed ? 'Ready. Pressing the button publishes for real.' : 'Tick the box above to turn on publishing.';
@@ -424,6 +576,30 @@ page.platforms.addEventListener('change', resetResults);
 page.whenNow.addEventListener('change', updateScheduleUi);
 page.whenLater.addEventListener('change', updateScheduleUi);
 page.scheduleTime.addEventListener('input', updateScheduleUi);
+
+// Media: tabs, the drop zone, choosing a file and dragging one in.
+page.tabUpload.addEventListener('click', () => setMediaSource('upload'));
+page.tabLink.addEventListener('click', () => setMediaSource('link'));
+page.dropzone.addEventListener('click', () => { if (!busy) page.fileInput.click(); });
+page.dropzone.addEventListener('keydown', (event) => {
+  if ((event.key === 'Enter' || event.key === ' ') && !busy) { event.preventDefault(); page.fileInput.click(); }
+});
+page.fileInput.addEventListener('change', () => handleFile(page.fileInput.files[0]));
+page.removeFile.addEventListener('click', removeFile);
+['dragenter', 'dragover'].forEach((name) => page.dropzone.addEventListener(name, (event) => {
+  event.preventDefault();
+  if (!busy) page.dropzone.classList.add('is-drag');
+}));
+['dragleave', 'drop'].forEach((name) => page.dropzone.addEventListener(name, (event) => {
+  event.preventDefault();
+  page.dropzone.classList.remove('is-drag');
+}));
+page.dropzone.addEventListener('drop', (event) => {
+  if (busy) return;
+  const file = event.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+page.tabUpload.classList.add('is-active'); // "Upload a file" is the default.
 // A chosen time can pass while the page is open, so check it again every 15 seconds.
 setInterval(() => { if (!busy && isScheduling()) updateScheduleUi(); }, 15000);
 

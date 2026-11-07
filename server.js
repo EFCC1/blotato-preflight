@@ -2,8 +2,9 @@
 // The backend: serves the web page and answers its requests.
 
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
-const { PORT, allowPrivateMedia } = require('./config');
+const { PORT, allowPrivateMedia, maxUploadBytes } = require('./config');
 const express = require('express');
 const blotato = require('./blotatoClient');
 const { createMockRouter } = require('./mockBlotato');
@@ -32,7 +33,8 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   res.set({
     // Google Fonts is allowed only for the Inter font (its stylesheet and font files). Nothing else from outside.
-    'Content-Security-Policy': "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    // blob: lets the page preview a chosen file (image thumbnail or a video's first frame) before upload.
+    'Content-Security-Policy': "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
   });
@@ -50,8 +52,37 @@ if (blotato.isMockMode()) app.use('/mock-blotato/v2', createMockRouter());
 const passedPreflights = new Map();
 
 // A fingerprint of the post, so a post changed after preflight can't use its pass.
-function postFingerprint({ caption, mediaUrl, platforms }) {
-  return JSON.stringify([String(caption || ''), String(mediaUrl || '').trim(), [...platforms].sort()]);
+// The media part is the link for a pasted URL, or the upload's id for an uploaded file.
+function postFingerprint({ caption, source, mediaUrl, uploadId, platforms }) {
+  const media = source === 'upload' ? `upload:${uploadId || ''}` : `url:${String(mediaUrl || '').trim()}`;
+  return JSON.stringify([String(caption || ''), media, [...platforms].sort()]);
+}
+
+// Uploaded files waiting to be sent. Each is saved under a random name, then deleted after it is
+// sent, or after one hour if it is never sent. Nothing here is ever shared or committed to git.
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const UPLOAD_TTL_MS = 60 * 60 * 1000; // One hour.
+const uploads = new Map(); // uploadId -> { path, filename, size, createdAt, timer }
+
+function deleteUpload(uploadId) {
+  const record = uploads.get(uploadId);
+  if (!record) return;
+  clearTimeout(record.timer);
+  uploads.delete(uploadId);
+  fs.promises.rm(record.path, { force: true }).catch(() => {});
+}
+
+// For preflight: the stored file for an upload, { missing: true } if it's gone, or undefined for a link.
+function resolveUpload(body) {
+  if (body.source !== 'upload') return undefined;
+  return uploads.get(body.uploadId) || { missing: true };
+}
+
+// A friendly size for the "too big" message, e.g. "1024 MB" or "1 KB".
+function describeMax(bytes) {
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1 ? `${Math.round(mb)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 function rememberPassedPreflight(body) {
@@ -72,7 +103,29 @@ app.get('/api/health', (req, res) => {
     hasApiKey: blotato.isMockMode() || blotato.hasApiKey(),
     scenarios: blotato.mockScenarios,
     platforms: Object.entries(PLATFORM_RULES).map(([id, rules]) => ({ id, label: rules.label })),
+    maxUploadBytes,
   });
+});
+
+// Receives an uploaded file as raw bytes (the file name comes in the X-Filename header). Prefers
+// no extra package: express.raw() is built into Express. The file is saved under a random name.
+app.post('/api/uploads', express.raw({ type: '*/*', limit: maxUploadBytes }), async (req, res) => {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    return res.status(400).json({ message: 'No file was received. Choose an image or video file and try again.' });
+  }
+  const rawName = decodeURIComponent(String(req.get('x-filename') || 'upload'));
+  const filename = (rawName.replace(/[^\w.\-]/g, '_').slice(-120)) || 'upload';
+  const uploadId = crypto.randomUUID();
+  const filePath = path.join(UPLOAD_DIR, `${uploadId}.bin`);
+  try {
+    await fs.promises.writeFile(filePath, req.body);
+  } catch (error) {
+    return res.status(500).json({ message: 'The file could not be saved on this computer. Try again.' });
+  }
+  const timer = setTimeout(() => deleteUpload(uploadId), UPLOAD_TTL_MS);
+  timer.unref(); // Never keep the app alive just to wait for this cleanup.
+  uploads.set(uploadId, { path: filePath, filename, size: req.body.length, createdAt: Date.now(), timer });
+  res.status(201).json({ uploadId, filename, size: req.body.length });
 });
 
 // Lists the connected social accounts. Only the id, platform, username and name are sent to the page.
@@ -89,7 +142,7 @@ app.post('/api/preflight', async (req, res, next) => {
   try {
     const body = req.body || {};
     blotato.setMockScenario(body.mockScenario);
-    const result = await runPreflight(body);
+    const result = await runPreflight({ ...body, upload: resolveUpload(body) });
     if (result.allPassed) result.preflightToken = rememberPassedPreflight(body);
     res.json(result);
   } catch (error) {
@@ -99,9 +152,19 @@ app.post('/api/preflight', async (req, res, next) => {
 
 // Sends the post. Each platform gets its own result, because one can fail while another works.
 app.post('/api/send', async (req, res) => {
-  const { caption, mediaUrl, platforms, mockScenario, preflightToken, confirmPublish, accountIds, scheduledTime } = req.body || {};
+  const { caption, mediaUrl, platforms, source, uploadId, mockScenario, preflightToken, confirmPublish, accountIds, scheduledTime } = req.body || {};
   const chosen = (Array.isArray(platforms) ? platforms : []).filter((platform) => Object.hasOwn(PLATFORM_RULES, platform));
-  if (chosen.length === 0 || typeof mediaUrl !== 'string' || !mediaUrl.trim()) {
+  const isUpload = source === 'upload';
+  if (chosen.length === 0) {
+    return res.status(400).json({ message: 'At least one platform is needed.' });
+  }
+  let uploadRecord;
+  if (isUpload) {
+    uploadRecord = uploadId && uploads.get(uploadId);
+    if (!uploadRecord) {
+      return res.status(409).json({ message: 'The uploaded file is no longer available. Upload it again, run Preflight, then send.' });
+    }
+  } else if (typeof mediaUrl !== 'string' || !mediaUrl.trim()) {
     return res.status(400).json({ message: 'A media link and at least one platform are needed.' });
   }
 
@@ -126,7 +189,7 @@ app.post('/api/send', async (req, res) => {
   // No passed preflight for exactly this post means no publishing. Each pass works once.
   const record = passedPreflights.get(preflightToken);
   passedPreflights.delete(preflightToken);
-  if (!record || record.expiresAt < Date.now() || record.fingerprint !== postFingerprint({ caption, mediaUrl, platforms: chosen })) {
+  if (!record || record.expiresAt < Date.now() || record.fingerprint !== postFingerprint({ caption, source, mediaUrl, uploadId, platforms: chosen })) {
     return res.status(409).json({ message: 'This post has no valid passed preflight. Run Preflight again, then send.' });
   }
 
@@ -142,10 +205,15 @@ app.post('/api/send', async (req, res) => {
   let blotatoMediaUrl;
   try {
     accounts = await blotato.listAccounts();
-    blotatoMediaUrl = await blotato.uploadMedia(mediaUrl.trim());
+    // Upload the file (or copy the link) to Blotato once, then reuse that one URL for every platform.
+    blotatoMediaUrl = isUpload
+      ? await blotato.uploadMediaFile({ filePath: uploadRecord.path, filename: uploadRecord.filename })
+      : await blotato.uploadMedia(mediaUrl.trim());
   } catch (error) {
     return res.json({ results: chosen.map((platform) => failure(platform, error)) });
   }
+  // The bytes are now on Blotato, so the temporary local copy is no longer needed.
+  if (isUpload) deleteUpload(uploadId);
 
   const results = [];
   for (const platform of chosen) {
@@ -193,6 +261,10 @@ app.get('/api/status/:postSubmissionId', async (req, res) => {
 
 // Any unexpected crash becomes a short readable message. The details stay in the terminal, not on the page.
 app.use((error, req, res, next) => {
+  // A file bigger than any platform allows: say so clearly, with the limit.
+  if (error.type === 'entity.too.large' || error.status === 413) {
+    return res.status(413).json({ message: `That file is too big. The largest size any platform allows is ${describeMax(maxUploadBytes)}. Choose a smaller file.` });
+  }
   const status = error.status || 500;
   if (status >= 500) console.error(`[${new Date().toISOString()}] Server error:`, error);
   res.status(status).json({ message: status >= 500 ? 'Something went wrong in the app. Check the terminal window for details.' : 'That request could not be understood.' });

@@ -88,4 +88,10 @@ const PLATFORM_RULES = {
   },
 };
 
-module.exports = { PLATFORM_RULES, ASPECT_RATIO_TOLERANCE, MAX_DOWNLOAD_BYTES };
+// The biggest file any platform allows. An uploaded file bigger than this can't be used
+// anywhere, so the app rejects it early with a clear message. Today this is TikTok's 1 GB video.
+const MAX_MEDIA_BYTES = Math.max(
+  ...Object.values(PLATFORM_RULES).flatMap((rules) => [rules.image && rules.image.maxBytes, rules.video && rules.video.maxBytes]).filter(Boolean)
+);
+
+module.exports = { PLATFORM_RULES, ASPECT_RATIO_TOLERANCE, MAX_DOWNLOAD_BYTES, MAX_MEDIA_BYTES };

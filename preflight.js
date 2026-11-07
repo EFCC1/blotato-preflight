@@ -152,6 +152,29 @@ function videoFormatFrom({ format_name: name = '', tags = {} }) {
 
 const VIDEO_FORMATS_BY_TYPE = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm' };
 
+// The file's format guessed from its name ending. Used only when the file name is all we can read.
+const EXT_FORMATS = { jpg: 'jpg', jpeg: 'jpg', png: 'png', gif: 'gif', webp: 'webp', mp4: 'mp4', mov: 'mov', webm: 'webm' };
+function formatFromFilename(filename) {
+  return EXT_FORMATS[String(filename || '').split('.').pop().toLowerCase()];
+}
+function looksLikeVideo(filename) {
+  return ['mp4', 'mov', 'webm'].includes(formatFromFilename(filename));
+}
+
+// Reads the first bytes of a local file, enough to read an image's size.
+async function readHead(filePath, maxBytes) {
+  const handle = await fs.promises.open(filePath, 'r');
+  try {
+    const { size } = await handle.stat();
+    const length = Math.min(size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    if (length > 0) await handle.read(buffer, 0, length, 0);
+    return buffer;
+  } finally {
+    await handle.close();
+  }
+}
+
 function checkFormat(platform, kind, format, source) {
   const rules = PLATFORM_RULES[platform];
   const name = `File format: ${rules.label}`;
@@ -396,7 +419,86 @@ async function checkMedia(link, platforms) {
   }
 }
 
-async function runPreflight({ caption, mediaUrl, platforms }) {
+// Checks an UPLOADED file already on this computer. Same file checks as a link, but the
+// link-only checks (reachable, Google Drive) are shown as "not needed", and the size is exact.
+async function checkUpload(upload, platforms) {
+  const checks = [];
+  const NOT_NEEDED = 'Not needed. You uploaded the file directly, so there is no link to open.';
+  checks.push(skipped('Media link is reachable', NOT_NEEDED));
+  checks.push(skipped('Not a Google Drive link', NOT_NEEDED));
+
+  const skipPlatforms = (reason) => platforms.forEach((platform) => {
+    const label = PLATFORM_RULES[platform].label;
+    checks.push(skipped(`File format: ${label}`, reason), skipped(`File size: ${label}`, reason), skipped(`Aspect ratio: ${label}`, reason));
+  });
+
+  if (!upload || upload.missing) {
+    const reason = 'The uploaded file could not be found. Choose the file again, then run Preflight.';
+    checks.push(fail('Media type', 'Choose a file to upload, then run Preflight.'));
+    skipPlatforms(reason);
+    return checks;
+  }
+
+  let bytes;
+  try {
+    ({ size: bytes } = await fs.promises.stat(upload.path));
+  } catch {
+    const reason = 'The uploaded file could not be read. Upload it again, then run Preflight.';
+    checks.push(fail('Media type', reason));
+    skipPlatforms(reason);
+    return checks;
+  }
+
+  // Look inside the file to learn what it really is, never trusting the name alone.
+  let kind = null;
+  let info = null;
+  let ffprobeMissing = false;
+  info = readImageInfo(await readHead(upload.path, IMAGE_HEAD_BYTES));
+  if (info) {
+    kind = 'image';
+  } else {
+    try {
+      const videoInfo = await readVideoInfo(upload.path);
+      if (videoInfo === null) {
+        ffprobeMissing = true;
+        kind = looksLikeVideo(upload.filename) ? 'video' : null;
+      } else {
+        kind = 'video';
+        info = videoInfo;
+      }
+    } catch {
+      kind = null; // Not a readable video either.
+    }
+  }
+
+  if (!kind) {
+    checks.push(fail('Media type', 'The file could not be read as an image or a video. Upload a standard image (JPG, PNG, GIF, WebP) or video (MP4, MOV, WebM).'));
+    skipPlatforms('Not checked because the file is not a readable image or video.');
+    return checks;
+  }
+
+  if (ffprobeMissing) {
+    checks.push(skipped('Media type', 'This looks like a video, but FFmpeg is not installed on this computer, so that could not be confirmed by looking inside the file.'));
+  } else {
+    checks.push(pass('Media type', `Confirmed by looking inside the file: it is a real ${kind} (${formatName(info.format)}).`));
+  }
+
+  const format = info ? info.format : formatFromFilename(upload.filename);
+  const source = info ? 'checked inside the file' : 'from the file name, not confirmed';
+  platforms.forEach((platform) => {
+    const label = PLATFORM_RULES[platform].label;
+    checks.push(format ? checkFormat(platform, kind, format, source) : skipped(`File format: ${label}`, 'The file format could not be read.'));
+    checks.push(checkFileSize(platform, kind, bytes, true));
+    if (info) {
+      checks.push(checkAspectRatio(platform, kind, info));
+    } else {
+      checks.push(skipped(`Aspect ratio: ${label}`, 'This is a video and FFmpeg is not installed on this computer, so its size could not be read. Check the ratio yourself before sending.'));
+    }
+  });
+  return checks;
+}
+
+async function runPreflight({ caption, mediaUrl, platforms, upload }) {
   const link = typeof mediaUrl === 'string' ? mediaUrl.trim() : '';
   const requested = Array.isArray(platforms) ? platforms : [];
   const unsupported = requested.filter((platform) => !Object.hasOwn(PLATFORM_RULES, platform));
@@ -411,7 +513,8 @@ async function runPreflight({ caption, mediaUrl, platforms }) {
   const captionIsText = caption === undefined || typeof caption === 'string';
   if (!captionIsText) checks.push(fail('Caption is text', 'The caption must be plain text. Type it into the Caption box.'));
 
-  checks.push(...(await checkMedia(link, chosen)));
+  // Either an uploaded file (checked on disk) or a pasted link (downloaded and checked).
+  checks.push(...(upload ? await checkUpload(upload, chosen) : await checkMedia(link, chosen)));
 
   // Connected accounts. If Blotato refuses the key, this is where it shows up.
   let accounts = [];

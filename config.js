@@ -7,6 +7,8 @@ function parseMockMode(value) {
   return String(value === undefined ? 'true' : value).trim().toLowerCase() !== 'false';
 }
 
+const { MAX_MEDIA_BYTES } = require('./platformRules');
+
 const mockMode = parseMockMode(process.env.BLOTATO_MOCK);
 
 module.exports = {
@@ -16,4 +18,7 @@ module.exports = {
   // Automated tests use media from a test website on this computer, which the safety
   // rules normally block. This switch is ignored in real mode.
   allowPrivateMedia: mockMode && process.env.PREFLIGHT_ALLOW_PRIVATE_MEDIA === 'true',
+  // Biggest uploaded file accepted. Normally the largest size any platform allows.
+  // Tests may set a tiny limit to prove the "too big" message; this override is ignored in real mode.
+  maxUploadBytes: (mockMode && Number(process.env.PREFLIGHT_MAX_UPLOAD_BYTES)) || MAX_MEDIA_BYTES,
 };
