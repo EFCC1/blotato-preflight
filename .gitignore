@@ -6,3 +6,5 @@
 node_modules
 # Logs can hold details of your posts
 *.log
+# Playwright MCP scratch files (page snapshots and console logs)
+.playwright-mcp/
